@@ -1556,3 +1556,235 @@ No new env variables in Phase 7.
 *Phase 7 complete. The product API now supports dynamic sorting, cursor pagination, soft deletes, auto-slug generation, and PATCH updates.*
 *Every read query filters soft-deleted records. The sort parameter is validated against a field whitelist.*
 *When you're ready, say "move to next phase" for Phase 8: File Uploads & Static Assets.*
+
+---
+
+# Phase 8 — File Uploads & Static Assets
+
+## What Was Built
+
+```
+src/
+├── config/
+│   └── env.ts                  ← MODIFIED — added uploadDir, maxFileSize, allowedImageTypes
+├── middleware/
+│   ├── upload.ts               ← NEW — Multer config (disk storage, file filter, size limits)
+│   └── errorHandler.ts         ← MODIFIED — added MulterError handling (CASE 2)
+├── utils/
+│   └── imageProcessor.ts       ← NEW — Sharp image processing (resize, compress, WebP)
+├── services/
+│   └── upload.service.ts       ← NEW — upload business logic (process, store, delete)
+├── controllers/
+│   └── upload.controller.ts    ← NEW — HTTP handlers (uploadProductImages, deleteProductImage)
+├── validators/
+│   └── upload.validator.ts     ← NEW — Zod schemas (deleteImageBodySchema)
+├── routes/
+│   ├── upload.routes.ts        ← NEW — route definitions (POST/DELETE /:id/images)
+│   └── index.ts                ← MODIFIED — mounted upload routes at /products
+├── app.ts                      ← MODIFIED — added express.static() for /uploads
+uploads/
+├── products/                   ← NEW — product image storage directory
+└── avatars/                    ← NEW — avatar image storage directory (future use)
+.env.example                    ← MODIFIED — documented new upload env vars
+```
+
+## New Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `POST` | `/api/v1/products/:id/images` | Required | Upload product images (multipart/form-data) |
+| `DELETE` | `/api/v1/products/:id/images` | Required | Delete a product image by URL |
+| `GET` | `/uploads/products/{filename}` | None | Serve uploaded images (static files) |
+
+## Key Concepts
+
+### Multipart/Form-Data vs JSON
+Regular API endpoints use `Content-Type: application/json` with JSON bodies.
+File uploads use `Content-Type: multipart/form-data` — a different encoding that
+supports binary data. Express's built-in JSON parser can't handle this format,
+so we use **Multer** to parse it.
+
+```
+JSON body:       { "name": "product" }
+Multipart body:  ------boundary
+                 Content-Disposition: form-data; name="images"; filename="photo.jpg"
+                 Content-Type: image/jpeg
+                 <raw binary bytes>
+                 ------boundary--
+```
+
+C# equivalent: `IFormFile` in ASP.NET Core handles this automatically.
+
+### Multer Middleware Pipeline
+Multer sits in the middleware chain BEFORE the controller:
+```
+Request → authenticate → validate(params) → Multer → controller → service
+                                              ↑
+                                    Parses multipart data,
+                                    validates file type/size,
+                                    saves to disk → req.files
+```
+
+After Multer runs, `req.files` contains an array of file metadata:
+- `originalname`: Client's filename (NEVER trust this)
+- `filename`: Our safe UUID filename (e.g., `abc123-1699876543210.jpg`)
+- `path`: Full filesystem path
+- `mimetype`: MIME type (e.g., `image/jpeg`)
+- `size`: File size in bytes
+
+### Sharp Image Processing
+Sharp is a high-performance image processing library built on libvips (C library).
+It's ~5x faster than alternatives like Jimp.
+
+Each uploaded image produces **two versions**:
+| Version | Max Size | Quality | Use Case |
+|---------|----------|---------|----------|
+| Full | 1200×1200px | 80 | Product detail page |
+| Thumbnail | 300×300px | 70 | Product listing cards |
+
+Both are converted to **WebP** format (~30% smaller than JPEG at same quality).
+The original uploaded file is deleted after processing.
+
+**Resize behavior:**
+- `fit: 'inside'` — shrink to fit within the box, preserving aspect ratio
+- `withoutEnlargement: true` — never upscale (prevents blurry images)
+- A 3000×2000 image → 1200×800 (not stretched to 1200×1200)
+
+C# equivalent: `SixLabors.ImageSharp` with `ResizeMode.Max`.
+
+### Storage Abstraction
+The `UploadService` is the **only file** that knows HOW files are stored.
+Right now it uses local disk (`./uploads/`). To switch to cloud storage
+(S3, Cloudinary), only this service needs to change:
+
+```
+Local:  /uploads/products/abc123.webp
+S3:     https://bucket.s3.amazonaws.com/products/abc123.webp
+CDN:    https://cdn.mystore.com/products/abc123.webp
+```
+
+Only `buildImageUrl()` and `urlToFilePath()` need updating.
+
+C# equivalent: `IFileStorageService` interface with `LocalFileStorage` and
+`S3FileStorage` implementations swapped via DI.
+
+### Static File Serving
+`express.static()` in app.ts serves files from the uploads directory:
+```typescript
+app.use('/uploads', express.static(path.join(process.cwd(), env.uploadDir)));
+```
+
+- `GET /uploads/products/abc123.webp` → serves the file with correct Content-Type
+- No authentication required — product images are public
+- Placed BEFORE API routes for fast serving (no middleware overhead)
+
+C# equivalent: `app.UseStaticFiles()` with a `PhysicalFileProvider`.
+
+### File Security
+1. **UUID filenames** — prevents path traversal attacks (`../../etc/passwd`)
+2. **MIME type whitelist** — only `image/jpeg`, `image/png`, `image/webp` accepted
+3. **File size limit** — default 5MB, configurable via `MAX_FILE_SIZE`
+4. **URL prefix validation** — delete requests must have URLs starting with `/uploads/`
+5. **Sharp validation** — if it's not a real image, Sharp throws during processing
+
+### MulterError Handling
+Multer throws `MulterError` with specific codes:
+| Code | Meaning | User Message |
+|------|---------|--------------|
+| `LIMIT_FILE_SIZE` | File exceeds max size | "File too large. Maximum size is 5MB" |
+| `LIMIT_FILE_COUNT` | Too many files | "Too many files. Maximum is 5 files per upload" |
+| `LIMIT_UNEXPECTED_FILE` | Wrong field name | "Use 'images' for product images" |
+
+These are caught in the global error handler (CASE 2) and return clean 400 responses.
+
+## C# Comparisons
+
+| Node.js (Express + Multer + Sharp) | ASP.NET Core |
+|---|---|
+| `multer({ storage: diskStorage(...) })` | `IFormFile` (built into framework) |
+| `multer.array('images', 5)` | `List<IFormFile> images` parameter |
+| `req.files` | `Request.Form.Files` |
+| `sharp(input).resize().webp().toFile()` | `Image.Load().Mutate(x => x.Resize()).SaveAsWebp()` |
+| `express.static('./uploads')` | `app.UseStaticFiles(new StaticFileOptions {...})` |
+| `MulterError` handling in errorHandler | `BadHttpRequestException` or `RequestSizeLimitExceededException` |
+| `fs.unlink()` | `File.Delete()` |
+| `crypto.randomUUID()` | `Guid.NewGuid()` |
+
+## Testing the Endpoints
+
+### Upload Images
+```bash
+# Upload 2 images to a product
+curl -X POST http://localhost:3000/api/v1/products/<product-id>/images \
+  -H "Authorization: Bearer <token>" \
+  -F "images=@photo1.jpg" \
+  -F "images=@photo2.jpg"
+
+# Response:
+# {
+#   "success": true,
+#   "data": [
+#     { "url": "/uploads/products/abc123.webp", "thumbnailUrl": "/uploads/products/abc123-thumb.webp" },
+#     { "url": "/uploads/products/def456.webp", "thumbnailUrl": "/uploads/products/def456-thumb.webp" }
+#   ],
+#   "message": "2 image(s) uploaded successfully"
+# }
+```
+
+### View an Image
+```bash
+# Full-size image (served by express.static)
+curl http://localhost:3000/uploads/products/abc123.webp --output image.webp
+
+# Thumbnail
+curl http://localhost:3000/uploads/products/abc123-thumb.webp --output thumb.webp
+```
+
+### Delete an Image
+```bash
+curl -X DELETE http://localhost:3000/api/v1/products/<product-id>/images \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{ "imageUrl": "/uploads/products/abc123.webp" }'
+
+# Response:
+# { "success": true, "data": { "imageUrl": "/uploads/products/abc123.webp" }, "message": "Image deleted successfully" }
+```
+
+### Error Cases
+```bash
+# Upload non-image file → 400
+curl -X POST .../images -F "images=@document.pdf"
+# → { "error": { "code": "BAD_REQUEST", "message": "File type 'application/pdf' is not allowed..." } }
+
+# Upload file too large → 400
+curl -X POST .../images -F "images=@huge-photo.jpg"
+# → { "error": { "code": "FILE_UPLOAD_ERROR", "message": "File too large. Maximum size is 5MB" } }
+
+# Upload without files → 400
+curl -X POST .../images
+# → { "error": { "code": "BAD_REQUEST", "message": "No image files provided..." } }
+```
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `UPLOAD_DIR` | No | `./uploads` | Directory for storing uploaded files |
+| `MAX_FILE_SIZE` | No | `5242880` (5MB) | Maximum file size in bytes |
+| `ALLOWED_IMAGE_TYPES` | No | `image/jpeg,image/png,image/webp` | Comma-separated allowed MIME types |
+
+## New Dependencies
+
+| Package | Purpose | C# Equivalent |
+|---------|---------|---------------|
+| `multer` | Multipart form-data parsing (file uploads) | `IFormFile` (built-in) |
+| `sharp` | Image processing (resize, compress, format conversion) | `SixLabors.ImageSharp` |
+| `@types/multer` | TypeScript types for multer | N/A |
+| `@types/sharp` | TypeScript types for sharp | N/A |
+
+---
+
+*Phase 8 complete. Products can now have images uploaded, processed (resized + WebP), and served statically.*
+*The upload infrastructure is local-first but designed for easy cloud migration — only one service file needs changing.*
+*When you're ready, say "move to next phase" for Phase 9: Caching with Redis.*

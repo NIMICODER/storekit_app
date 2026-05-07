@@ -41,3 +41,4 @@ uploads/
 coverage/
 
 /src/generated/prisma
+.claude/
