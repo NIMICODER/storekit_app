@@ -1,0 +1,119 @@
+{
+  // tsconfig.json — TypeScript Compiler Configuration
+  //
+  // This file tells the TypeScript compiler (tsc) how to:
+  //   1. Find your source files
+  //   2. What JavaScript version to compile to
+  //   3. How strict to be with type checking
+  //   4. Where to put the compiled output
+  //
+  // In .NET this is roughly equivalent to your .csproj settings.
+  // TypeScript is NOT a runtime — it only exists at build time.
+  // 'tsc' compiles .ts → .js, then Node.js runs the .js files.
+
+  "compilerOptions": {
+
+    // ── TARGET & MODULE ──────────────────────────────────────────────────────
+
+    // target: The JavaScript version to compile TypeScript down to.
+    // "ES2020" means the output JS will use ES2020 features (async/await,
+    // optional chaining, etc.) — supported by Node.js 14+.
+    // We target ES2020 and not older versions to avoid unnecessary polyfills.
+    "target": "ES2020",
+
+    // module: The module system to use in the compiled output.
+    // "CommonJS" is the traditional Node.js module system (require/module.exports).
+    // Even though we write ESM-style imports in TypeScript (import/export),
+    // tsc compiles them to require() calls when targeting CommonJS.
+    //
+    // ESM vs CommonJS:
+    //   ESM (ES Modules): import x from 'y'  — the modern standard
+    //   CommonJS:         const x = require('y') — Node.js legacy
+    //
+    // We use CommonJS here because it has the best ecosystem compatibility
+    // and no file extension requirements. We'll stay on CommonJS throughout.
+    "module": "CommonJS",
+
+    // lib: Built-in type definitions TypeScript includes.
+    // "ES2020" includes types for Map, Set, Promise, Array methods, etc.
+    // Without this, TypeScript wouldn't know what Promise or Array.flat() is.
+    "lib": ["ES2020"],
+
+    // ── PATHS ────────────────────────────────────────────────────────────────
+
+    // outDir: Where the compiled JavaScript files go.
+    // Running 'tsc' will create a dist/ folder mirroring your src/ structure.
+    // The dist/ folder is gitignored — it's generated output, not source.
+    "outDir": "./dist",
+
+    // rootDir: The root of your TypeScript source files.
+    // tsc uses this to determine the folder structure in outDir.
+    // src/config/env.ts → dist/config/env.js
+    "rootDir": "./src",
+
+    // ── STRICT MODE ──────────────────────────────────────────────────────────
+
+    // strict: Enables ALL strict type-checking options at once.
+    // This is like setting <Nullable>enable</Nullable> in .NET — it makes
+    // TypeScript catch far more bugs at compile time.
+    //
+    // What "strict: true" enables:
+    //   - strictNullChecks: you can't use a value that might be null/undefined
+    //                       without handling it first
+    //   - noImplicitAny: variables must have an explicit type or be inferable
+    //   - strictFunctionTypes: stricter function parameter types
+    //   - and more...
+    //
+    // This will feel restrictive at first but saves you from runtime crashes.
+    "strict": true,
+
+    // ── INTEROPERABILITY ─────────────────────────────────────────────────────
+
+    // esModuleInterop: Allows you to import CommonJS modules using ESM syntax.
+    //
+    // Without this:  import * as express from 'express'
+    // With this:     import express from 'express'    ← much cleaner
+    //
+    // CommonJS modules don't have a "default export" — esModuleInterop adds
+    // a compatibility shim so you can use the cleaner import syntax.
+    "esModuleInterop": true,
+
+    // skipLibCheck: Skips type-checking of .d.ts declaration files in
+    // node_modules. This significantly speeds up compilation and avoids
+    // errors in third-party type definitions that you can't control.
+    "skipLibCheck": true,
+
+    // forceConsistentCasingInFileNames: Enforces consistent file name casing.
+    // Prevents bugs on case-sensitive file systems (Linux/macOS).
+    // Example: importing './Config' when the file is './config' will error.
+    "forceConsistentCasingInFileNames": true,
+
+    // resolveJsonModule: Allows importing .json files directly.
+    // import packageJson from '../package.json'; // works with this option
+    "resolveJsonModule": true,
+
+    // ── OUTPUT HELPERS ───────────────────────────────────────────────────────
+
+    // declaration: Generates .d.ts type declaration files alongside .js files.
+    // Useful if this package is consumed by other TypeScript projects.
+    "declaration": true,
+
+    // declarationMap: Generates sourcemaps for .d.ts files.
+    // Allows "Go to Definition" in IDEs to jump to the original .ts source.
+    "declarationMap": true,
+
+    // sourceMap: Generates .js.map files linking compiled JS back to TypeScript.
+    // When an error occurs in Node.js, stack traces will show the original
+    // TypeScript file and line number instead of the compiled JavaScript.
+    "sourceMap": true
+  },
+
+  // include: Which files TypeScript should compile.
+  // "src/**/*" means all files inside src/ recursively.
+  "include": ["src/**/*"],
+
+  // exclude: Files/folders TypeScript should ignore.
+  // node_modules is always excluded — no need to type-check dependencies.
+  // dist is excluded — it contains compiled output, not source.
+  "exclude": ["node_modules", "dist"]
+}

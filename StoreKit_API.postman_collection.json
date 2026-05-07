@@ -1,0 +1,746 @@
+{
+	"info": {
+		"name": "StoreKit API — Phase 6",
+		"description": "Full CRUD + Authentication & Authorization.\n\nBase URL: http://localhost:3000/api/v1\n\nSetup:\n1. Run `npm run dev` to start the server\n2. Run `npm run db:seed` if you haven't seeded data yet\n3. Use \"Register\" or \"Login\" to get tokens\n4. The Login (auto-save token) request saves tokens to collection variables automatically\n5. Protected routes use {{accessToken}} from collection variables",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:3000/api/v1"
+		},
+		{
+			"key": "accessToken",
+			"value": ""
+		},
+		{
+			"key": "refreshToken",
+			"value": ""
+		},
+		{
+			"key": "productId",
+			"value": "PASTE_PRODUCT_ID_HERE"
+		},
+		{
+			"key": "categoryId",
+			"value": "PASTE_CATEGORY_ID_HERE"
+		},
+		{
+			"key": "userId",
+			"value": "PASTE_USER_ID_HERE"
+		}
+	],
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "Register",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\",\n  \"firstName\": \"Test\",\n  \"lastName\": \"User\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/register",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "register"]
+						}
+					}
+				},
+				{
+					"name": "Register (validation error — empty body)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/register",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "register"]
+						}
+					}
+				},
+				{
+					"name": "Register (short password)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"short@example.com\",\n  \"password\": \"short\",\n  \"firstName\": \"Test\",\n  \"lastName\": \"User\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/register",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "register"]
+						}
+					}
+				},
+				{
+					"name": "Login",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "Login (auto-save tokens)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var json = pm.response.json();",
+									"    pm.collectionVariables.set('accessToken', json.data.accessToken);",
+									"    pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+									"    console.log('Tokens saved to collection variables');",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "Login as Admin (auto-save tokens)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var json = pm.response.json();",
+									"    pm.collectionVariables.set('accessToken', json.data.accessToken);",
+									"    pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+									"    console.log('Admin tokens saved to collection variables');",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"admin@storekit.dev\",\n  \"password\": \"admin123456\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "Login (wrong password → 401)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"wrongpassword\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "Login (non-existent email → 401)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"nobody@example.com\",\n  \"password\": \"anything\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "Get Me (protected)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/auth/me",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "me"]
+						}
+					}
+				},
+				{
+					"name": "Get Me (no token → 401)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/auth/me",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "me"]
+						}
+					}
+				},
+				{
+					"name": "Refresh Tokens",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var json = pm.response.json();",
+									"    pm.collectionVariables.set('accessToken', json.data.accessToken);",
+									"    pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+									"    console.log('New tokens saved to collection variables');",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/refresh",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "refresh"]
+						}
+					}
+				},
+				{
+					"name": "Refresh (invalid token → 401)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"invalid-token-here\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/refresh",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "refresh"]
+						}
+					}
+				},
+				{
+					"name": "Logout (protected)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/auth/logout",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "logout"]
+						}
+					}
+				},
+				{
+					"name": "Logout (no token → 401)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/auth/logout",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "logout"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Health",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/health",
+							"host": ["{{baseUrl}}"],
+							"path": ["health"]
+						}
+					}
+				},
+				{
+					"name": "Ping",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/health/ping",
+							"host": ["{{baseUrl}}"],
+							"path": ["health", "ping"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Products",
+			"item": [
+				{
+					"name": "Get Products (paginated)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/products?page=1&limit=10",
+							"host": ["{{baseUrl}}"],
+							"path": ["products"],
+							"query": [
+								{ "key": "page", "value": "1" },
+								{ "key": "limit", "value": "10" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Products (search)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/products?search=iphone",
+							"host": ["{{baseUrl}}"],
+							"path": ["products"],
+							"query": [
+								{ "key": "search", "value": "iphone" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Products (price range)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/products?minPrice=50&maxPrice=500",
+							"host": ["{{baseUrl}}"],
+							"path": ["products"],
+							"query": [
+								{ "key": "minPrice", "value": "50" },
+								{ "key": "maxPrice", "value": "500" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Products (by category)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/products?categoryId={{categoryId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["products"],
+							"query": [
+								{ "key": "categoryId", "value": "{{categoryId}}" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Product by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/products/{{productId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["products", "{{productId}}"]
+						}
+					}
+				},
+				{
+					"name": "Get Product by Slug",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/products/slug/iphone-15-pro",
+							"host": ["{{baseUrl}}"],
+							"path": ["products", "slug", "iphone-15-pro"]
+						}
+					}
+				},
+				{
+					"name": "Create Product",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Bluetooth Speaker\",\n  \"slug\": \"bluetooth-speaker\",\n  \"description\": \"Portable wireless speaker with 12-hour battery life\",\n  \"price\": 39.99,\n  \"stock\": 50,\n  \"sku\": \"BT-SPK-001\",\n  \"isActive\": true,\n  \"images\": []\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/products",
+							"host": ["{{baseUrl}}"],
+							"path": ["products"]
+						}
+					}
+				},
+				{
+					"name": "Create Product (with category)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"USB-C Hub\",\n  \"slug\": \"usb-c-hub\",\n  \"description\": \"7-in-1 USB-C hub with HDMI, USB 3.0, and SD card reader\",\n  \"price\": 49.99,\n  \"stock\": 100,\n  \"sku\": \"USB-HUB-001\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"isActive\": true,\n  \"images\": []\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/products",
+							"host": ["{{baseUrl}}"],
+							"path": ["products"]
+						}
+					}
+				},
+				{
+					"name": "Update Product",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"price\": 44.99,\n  \"stock\": 25,\n  \"description\": \"Updated description here\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/products/{{productId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["products", "{{productId}}"]
+						}
+					}
+				},
+				{
+					"name": "Delete Product",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/products/{{productId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["products", "{{productId}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Categories",
+			"item": [
+				{
+					"name": "Get Categories (flat list)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/categories",
+							"host": ["{{baseUrl}}"],
+							"path": ["categories"]
+						}
+					}
+				},
+				{
+					"name": "Get Categories (tree)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/categories?tree=true",
+							"host": ["{{baseUrl}}"],
+							"path": ["categories"],
+							"query": [
+								{ "key": "tree", "value": "true" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Category by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/categories/{{categoryId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["categories", "{{categoryId}}"]
+						}
+					}
+				},
+				{
+					"name": "Get Category by Slug",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/categories/slug/electronics",
+							"host": ["{{baseUrl}}"],
+							"path": ["categories", "slug", "electronics"]
+						}
+					}
+				},
+				{
+					"name": "Get Category Products (paginated)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/categories/{{categoryId}}/products?page=1&limit=10",
+							"host": ["{{baseUrl}}"],
+							"path": ["categories", "{{categoryId}}", "products"],
+							"query": [
+								{ "key": "page", "value": "1" },
+								{ "key": "limit", "value": "10" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Create Category",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Wearables\",\n  \"slug\": \"wearables\",\n  \"description\": \"Smartwatches, fitness trackers, and more\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/categories",
+							"host": ["{{baseUrl}}"],
+							"path": ["categories"]
+						}
+					}
+				},
+				{
+					"name": "Create Subcategory (with parent)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Smartwatches\",\n  \"slug\": \"smartwatches\",\n  \"description\": \"Apple Watch, Galaxy Watch, etc.\",\n  \"parentId\": \"{{categoryId}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/categories",
+							"host": ["{{baseUrl}}"],
+							"path": ["categories"]
+						}
+					}
+				},
+				{
+					"name": "Update Category",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Consumer Electronics\",\n  \"description\": \"Updated description\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/categories/{{categoryId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["categories", "{{categoryId}}"]
+						}
+					}
+				},
+				{
+					"name": "Delete Category",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/categories/{{categoryId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["categories", "{{categoryId}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Users (protected)",
+			"item": [
+				{
+					"name": "Get Users — ADMIN only (paginated)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/users?page=1&limit=10",
+							"host": ["{{baseUrl}}"],
+							"path": ["users"],
+							"query": [
+								{ "key": "page", "value": "1" },
+								{ "key": "limit", "value": "10" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Users — ADMIN only (filter by role)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/users?role=ADMIN",
+							"host": ["{{baseUrl}}"],
+							"path": ["users"],
+							"query": [
+								{ "key": "role", "value": "ADMIN" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Users — ADMIN only (search)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/users?search=jane",
+							"host": ["{{baseUrl}}"],
+							"path": ["users"],
+							"query": [
+								{ "key": "search", "value": "jane" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Users (no token → 401)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/users",
+							"host": ["{{baseUrl}}"],
+							"path": ["users"]
+						}
+					}
+				},
+				{
+					"name": "Get User by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/users/{{userId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["users", "{{userId}}"]
+						}
+					}
+				},
+				{
+					"name": "Update User Profile",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"firstName\": \"David\",\n  \"lastName\": \"Smith\",\n  \"phone\": \"+1-555-1234\",\n  \"address\": {\n    \"street\": \"123 Main St\",\n    \"city\": \"Portland\",\n    \"state\": \"OR\",\n    \"zip\": \"97201\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/users/{{userId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["users", "{{userId}}"]
+						}
+					}
+				}
+			]
+		}
+	]
+}

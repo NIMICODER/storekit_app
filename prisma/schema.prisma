@@ -1,0 +1,597 @@
+// ═══════════════════════════════════════════════════════════════════════════════
+// prisma/schema.prisma — StoreKit API Database Schema
+//
+// PURPOSE:
+//   Defines ALL database tables, columns, relationships, and indexes for our
+//   e-commerce platform. Prisma reads this file and:
+//     1. Generates TypeScript types (the "Prisma Client")
+//     2. Creates SQL migrations (ALTER TABLE, CREATE INDEX, etc.)
+//     3. Validates your schema at build time — catches errors before runtime
+//
+// .NET/EF CORE COMPARISON:
+// ──────────────────────────────────────────────────────────────────────────────
+//   EF Core                          │  Prisma
+//   ─────────────────────────────────│──────────────────────────────────────────
+//   DbContext + DbSet<T>             │  PrismaClient (auto-generated)
+//   Entity class (C# POCO)           │  model block (in this file)
+//   Data Annotations / Fluent API    │  Field attributes (@id, @unique, etc.)
+//   Migration via `dotnet ef`        │  Migration via `prisma migrate dev`
+//   .edmx / model builder            │  This schema.prisma file
+//   DbContext.OnModelCreating()      │  @@index, @@unique, @relation directives
+//
+// KEY PRISMA CONCEPTS:
+//   model  → a database table (like an Entity class in EF Core)
+//   @id    → primary key column
+//   @unique → unique constraint
+//   @default(uuid()) → auto-generate UUID (like [DatabaseGenerated] in EF)
+//   @relation → defines FK relationships (like .HasOne().WithMany() in Fluent API)
+//   @@index → composite or single-column index (like .HasIndex() in EF)
+//   ?      → nullable field (like `string?` in C#)
+//
+// IMPORTANT DESIGN DECISIONS:
+//   1. UUID primary keys (not auto-increment integers)
+//      → Better for distributed systems, harder to guess/enumerate
+//      → Trade-off: slightly larger, slightly slower joins (negligible in practice)
+//
+//   2. Decimal for money (never Float!)
+//      → Float has rounding errors: 0.1 + 0.2 = 0.30000000000000004
+//      → Decimal is exact: 0.1 + 0.2 = 0.3
+//      → In C# you'd use `decimal` type — same concept
+//
+//   3. Json fields for flexible/nested data (addresses, image arrays)
+//      → PostgreSQL natively supports JSON with indexing
+//      → Alternative: separate Address table (more normalized, more joins)
+//
+//   4. Soft-delete via `deletedAt` timestamp on Product (Phase 7)
+//      → null = active, non-null = when it was deleted (audit trail)
+//      → All read queries filter `deletedAt: null` to exclude soft-deleted records
+//
+//   5. createdAt/updatedAt on EVERY model
+//      → Standard audit trail — always know when records changed
+//      → @updatedAt auto-sets on every UPDATE (like EF's ValueGeneratedOnUpdate)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Generator: Tells Prisma HOW to generate the client code
+// ─────────────────────────────────────────────────────────────────────────────
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Datasource: Tells Prisma WHERE the database is
+// Note: The actual URL comes from prisma.config.ts (reads DATABASE_URL env var)
+// ─────────────────────────────────────────────────────────────────────────────
+datasource db {
+  provider = "postgresql"
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ENUMS
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// Enums in Prisma map to PostgreSQL ENUM types.
+// They restrict a column to a fixed set of values — the DB enforces this.
+//
+// .NET equivalent: public enum UserRole { CUSTOMER, ADMIN }
+// The difference: in .NET, enums are just integers by default.
+// In PostgreSQL, they're actual string-based types with validation.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// User roles — controls what actions a user can perform.
+/// CUSTOMER = default role, can browse/buy products
+/// ADMIN = full access to management endpoints (CRUD products, view all orders)
+enum UserRole {
+  CUSTOMER
+  ADMIN
+}
+
+/// Order lifecycle states — tracks where an order is in the fulfillment process.
+/// Flow: PENDING → CONFIRMED → PROCESSING → SHIPPED → DELIVERED
+///       PENDING → CANCELLED (can cancel before processing)
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+/// Payment states — separate from order status because payment can fail
+/// independently of the order flow.
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+/// Discount types for coupons:
+/// PERCENTAGE = "20% off" (value = 20)
+/// FIXED_AMOUNT = "$10 off" (value = 10.00)
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MODELS (Database Tables)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────────────────────────────────────────
+// Represents a registered user (customer or admin).
+//
+// .NET equivalent:
+//   public class User {
+//     [Key]
+//     public Guid Id { get; set; }
+//     [Required, MaxLength(100)]
+//     public string FirstName { get; set; }
+//     ...
+//   }
+// ─────────────────────────────────────────────────────────────────────────────
+model User {
+  // @id marks this as the primary key (like [Key] in EF Core)
+  // @default(uuid()) auto-generates a UUID on INSERT (like Guid.NewGuid())
+  id        String   @id @default(uuid())
+
+  // Basic profile fields
+  // @db.VarChar(100) maps to VARCHAR(100) in PostgreSQL
+  // Without it, Prisma uses TEXT (unlimited length) — VARCHAR gives a DB-level limit
+  firstName String   @db.VarChar(100)
+  lastName  String   @db.VarChar(100)
+
+  // @unique creates a UNIQUE constraint — no two users can have the same email
+  // This is like [Index(IsUnique = true)] in EF Core
+  email     String   @unique @db.VarChar(255)
+
+  // Hashed password — never store plaintext!
+  // Phase 6 will hash with bcrypt before saving
+  password  String   @db.VarChar(255)
+
+  // Role with a default — new users are always CUSTOMER unless explicitly set
+  // @default(CUSTOMER) is like: public UserRole Role { get; set; } = UserRole.CUSTOMER;
+  role      UserRole @default(CUSTOMER)
+
+  // Optional phone number (the ? makes it nullable)
+  // Nullable in Prisma = `String?` = allows NULL in the database
+  // Same as `string?` in C# (nullable reference type)
+  phone     String?  @db.VarChar(20)
+
+  // Shipping/billing address stored as JSON
+  // Using Json type because addresses have nested structure (street, city, zip, etc.)
+  // and users might have multiple addresses in the future
+  // Alternative: separate Address model with a 1:many relation
+  address   Json?
+
+  // ── Timestamps ──
+  // @default(now()) → DB sets this to CURRENT_TIMESTAMP on INSERT
+  // @updatedAt → Prisma automatically updates this on every UPDATE query
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // ── Relations ──
+  // These don't create columns! They define how models connect.
+  // They generate JOIN capabilities in the Prisma Client.
+  //
+  // One User has many Orders, Reviews, and one Cart.
+  // "UserOrders" etc. are relation names — used when a model has multiple
+  // relations to the same target (avoids ambiguity).
+  orders    Order[]   @relation("UserOrders")
+  reviews   Review[]  @relation("UserReviews")
+  cart      Cart?     @relation("UserCart")
+
+  // ── Indexes ──
+  // @@index creates a B-tree index for faster lookups
+  // email is already indexed via @unique, but role is useful for admin queries
+  @@index([role])
+
+  // @@map renames the table in the database (optional, for snake_case preference)
+  // Without it, the table would be called "User" (PascalCase)
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CATEGORY
+// ─────────────────────────────────────────────────────────────────────────────
+// Product categories with SELF-REFERENCING hierarchy.
+// e.g., Electronics → Phones → Smartphones
+//
+// Self-referencing means a Category can have a parent Category.
+// This creates a tree structure (like a folder hierarchy).
+//
+// .NET equivalent:
+//   public class Category {
+//     public Guid? ParentId { get; set; }
+//     public Category? Parent { get; set; }
+//     public ICollection<Category> Children { get; set; }
+//   }
+// ─────────────────────────────────────────────────────────────────────────────
+model Category {
+  id          String   @id @default(uuid())
+  name        String   @db.VarChar(100)
+  slug        String   @unique @db.VarChar(120)
+  description String?  @db.Text
+  image       String?  @db.VarChar(500)
+
+  // Self-referencing FK: parentId points to another Category's id
+  // The ? makes it nullable — top-level categories have no parent
+  parentId    String?
+
+  // The @relation defines the self-reference:
+  //   "CategoryHierarchy" = relation name (both sides must match)
+  //   fields: [parentId] = the FK column on THIS model
+  //   references: [id] = the PK column on the RELATED model
+  //   onDelete: SetNull = if parent is deleted, set children's parentId to NULL
+  parent      Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[] @relation("CategoryHierarchy")
+
+  // One category has many products
+  products    Product[] @relation("CategoryProducts")
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([parentId])
+  @@index([slug])
+  @@map("categories")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRODUCT
+// ─────────────────────────────────────────────────────────────────────────────
+// The core entity — items available for purchase.
+//
+// Key decisions:
+//   - price is Decimal (never Float for money!)
+//   - images is Json (array of image URLs — flexible, no extra table)
+//   - stock is Int with a default of 0
+// ─────────────────────────────────────────────────────────────────────────────
+model Product {
+  id          String   @id @default(uuid())
+  name        String   @db.VarChar(200)
+  slug        String   @unique @db.VarChar(220)
+  description String?  @db.Text
+  // @db.Decimal(10, 2) → max 10 digits total, 2 after decimal point
+  // e.g., 99999999.99 is the max value (10 digits, 2 decimal)
+  // In C#: [Column(TypeName = "decimal(10,2)")]
+  price       Decimal  @db.Decimal(10, 2)
+  // Compare price — shows original price if item is on sale (optional)
+  compareAt   Decimal? @db.Decimal(10, 2)
+  // Stock tracking — 0 means out of stock
+  stock       Int      @default(0)
+  sku         String?  @unique @db.VarChar(50)
+  // Array of image URLs stored as JSON
+  // Example: ["https://cdn.example.com/img1.jpg", "https://cdn.example.com/img2.jpg"]
+  images      Json     @default("[]")
+  // Is the product visible to customers?
+  isActive    Boolean  @default(true)
+
+  // FK to Category
+  categoryId  String?
+  category    Category? @relation("CategoryProducts", fields: [categoryId], references: [id], onDelete: SetNull)
+
+  // Relations — one product can appear in many cart items, order items, and reviews
+  cartItems   CartItem[]  @relation("ProductCartItems")
+  orderItems  OrderItem[] @relation("ProductOrderItems")
+  reviews     Review[]    @relation("ProductReviews")
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Soft-delete timestamp — null means the product is active.
+  // When a product is "deleted", we set this to the current time instead of
+  // removing the row. This preserves the record for:
+  //   1. Audit trail — know WHEN something was deleted
+  //   2. Order history — orders reference this product
+  //   3. Recovery — admins can "undelete" if needed
+  //
+  // All read queries filter `deletedAt: null` to exclude soft-deleted products.
+  //
+  // C# equivalent:
+  //   public DateTime? DeletedAt { get; set; }
+  //   // with a global query filter:
+  //   modelBuilder.Entity<Product>().HasQueryFilter(p => p.DeletedAt == null);
+  deletedAt   DateTime?
+
+  @@index([categoryId])
+  @@index([price])
+  @@index([isActive])
+  @@index([slug])
+  // Index for soft-delete filtering — every read query uses `deletedAt IS NULL`,
+  // so an index makes that filter fast even on large tables.
+  @@index([deletedAt])
+  @@map("products")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CART
+// ─────────────────────────────────────────────────────────────────────────────
+// Shopping cart — ONE per user (1:1 relationship).
+// Contains CartItems (the products in the cart).
+//
+// Design: We create the cart lazily (when user adds first item),
+// not at user registration time.
+// ─────────────────────────────────────────────────────────────────────────────
+model Cart {
+  id        String     @id @default(uuid())
+
+  // 1:1 with User — each user has exactly one cart
+  // @unique on userId enforces the 1:1 at DB level
+  userId    String     @unique
+  user      User       @relation("UserCart", fields: [userId], references: [id], onDelete: Cascade)
+
+  // One cart has many items
+  items     CartItem[] @relation("CartItems")
+
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("carts")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CART ITEM
+// ─────────────────────────────────────────────────────────────────────────────
+// A line item in a cart: "3x Widget at $9.99 each"
+// Junction table between Cart and Product (many-to-many through this model).
+//
+// @@unique([cartId, productId]) ensures a product appears only ONCE per cart.
+// To add more of the same product, you increment `quantity` — not add a new row.
+// ─────────────────────────────────────────────────────────────────────────────
+model CartItem {
+  id        String   @id @default(uuid())
+
+  cartId    String
+  cart      Cart     @relation("CartItems", fields: [cartId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product  @relation("ProductCartItems", fields: [productId], references: [id], onDelete: Cascade)
+
+  quantity  Int      @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Composite unique: one product per cart (add more → update quantity)
+  @@unique([cartId, productId])
+  @@index([cartId])
+  @@index([productId])
+  @@map("cart_items")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ORDER
+// ─────────────────────────────────────────────────────────────────────────────
+// A completed (or in-progress) purchase. Created when user "checks out".
+//
+// Orders are IMMUTABLE snapshots — even if a product's price changes later,
+// the order keeps the price at time of purchase.
+//
+// .NET equivalent of cascade delete:
+//   .OnDelete(DeleteBehavior.Restrict) → prevent deleting user with orders
+// ─────────────────────────────────────────────────────────────────────────────
+model Order {
+  id              String       @id @default(uuid())
+
+  // Order number for display (human-friendly, e.g., "ORD-00001")
+  orderNumber     String       @unique @db.VarChar(20)
+
+  userId          String
+  // onDelete: Restrict → can't delete a user who has orders
+  // This protects data integrity (orders are financial records!)
+  user            User         @relation("UserOrders", fields: [userId], references: [id], onDelete: Restrict)
+
+  status          OrderStatus  @default(PENDING)
+
+  // Money fields — ALL Decimal, never Float
+  subtotal        Decimal      @db.Decimal(10, 2)
+  tax             Decimal      @default(0) @db.Decimal(10, 2)
+  shippingCost    Decimal      @default(0) @db.Decimal(10, 2)
+  discount        Decimal      @default(0) @db.Decimal(10, 2)
+  total           Decimal      @db.Decimal(10, 2)
+
+  // Shipping address snapshot (copied at order time, not a reference)
+  // Even if user changes their address later, this order keeps the original
+  shippingAddress Json?
+  billingAddress  Json?
+
+  // Optional notes from the customer
+  notes           String?      @db.Text
+
+  // Relations
+  items           OrderItem[]  @relation("OrderItems")
+  payment         Payment?     @relation("OrderPayment")
+
+  // Coupon used (optional)
+  couponId        String?
+  coupon          Coupon?      @relation("CouponOrders", fields: [couponId], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([orderNumber])
+  @@index([couponId])
+  @@map("orders")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ORDER ITEM
+// ─────────────────────────────────────────────────────────────────────────────
+// A line item in an order — snapshot of what was purchased.
+// Stores the price AT TIME OF PURCHASE (not current product price).
+// ─────────────────────────────────────────────────────────────────────────────
+model OrderItem {
+  id          String   @id @default(uuid())
+
+  orderId     String
+  order       Order    @relation("OrderItems", fields: [orderId], references: [id], onDelete: Cascade)
+
+  productId   String
+  product     Product  @relation("ProductOrderItems", fields: [productId], references: [id], onDelete: Restrict)
+
+  // Snapshot fields — these capture the state at purchase time
+  productName String   @db.VarChar(200)
+  quantity    Int
+  unitPrice   Decimal  @db.Decimal(10, 2)
+  totalPrice  Decimal  @db.Decimal(10, 2)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REVIEW
+// ─────────────────────────────────────────────────────────────────────────────
+// Product reviews by users. One review per user per product.
+//
+// @@unique([userId, productId]) prevents duplicate reviews.
+// ─────────────────────────────────────────────────────────────────────────────
+model Review {
+  id        String   @id @default(uuid())
+
+  userId    String
+  user      User     @relation("UserReviews", fields: [userId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product  @relation("ProductReviews", fields: [productId], references: [id], onDelete: Cascade)
+
+  // Rating: 1-5 stars (validated at application level in Phase 5)
+  rating    Int
+  title     String?  @db.VarChar(200)
+  comment   String?  @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // One review per user per product
+  @@unique([userId, productId])
+  @@index([productId])
+  @@index([userId])
+  @@index([rating])
+  @@map("reviews")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COUPON
+// ─────────────────────────────────────────────────────────────────────────────
+// Discount codes that can be applied at checkout.
+// Supports percentage or fixed-amount discounts with optional limits.
+// ─────────────────────────────────────────────────────────────────────────────
+model Coupon {
+  id            String       @id @default(uuid())
+
+  // The code customers enter (e.g., "SAVE20", "WELCOME10")
+  code          String       @unique @db.VarChar(50)
+  description   String?      @db.VarChar(255)
+
+  // Discount type and value
+  discountType  DiscountType
+  // For PERCENTAGE: value = 20 means 20% off
+  // For FIXED_AMOUNT: value = 10.00 means $10 off
+  discountValue Decimal      @db.Decimal(10, 2)
+
+  // Minimum order total required to use this coupon (optional)
+  minimumAmount Decimal?     @db.Decimal(10, 2)
+  // Maximum discount amount (caps percentage discounts)
+  maximumDiscount Decimal?   @db.Decimal(10, 2)
+
+  // Usage limits
+  usageLimit    Int?         // Max total uses (null = unlimited)
+  usageCount    Int          @default(0) // How many times it's been used
+
+  // Validity period
+  validFrom     DateTime     @default(now())
+  validUntil    DateTime?    // null = no expiration
+
+  isActive      Boolean      @default(true)
+
+  // Orders that used this coupon
+  orders        Order[]      @relation("CouponOrders")
+
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([code])
+  @@index([isActive])
+  @@map("coupons")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAYMENT
+// ─────────────────────────────────────────────────────────────────────────────
+// Payment record linked 1:1 with an Order.
+// In a real app, this would integrate with Stripe, PayPal, etc.
+// ─────────────────────────────────────────────────────────────────────────────
+model Payment {
+  id              String        @id @default(uuid())
+
+  // 1:1 with Order
+  orderId         String        @unique
+  order           Order         @relation("OrderPayment", fields: [orderId], references: [id], onDelete: Cascade)
+
+  status          PaymentStatus @default(PENDING)
+  amount          Decimal       @db.Decimal(10, 2)
+  currency        String        @default("USD") @db.VarChar(3)
+
+  // Payment provider details (Stripe, PayPal, etc.)
+  provider        String?       @db.VarChar(50)
+  providerPaymentId String?    @db.VarChar(255)
+
+  // Metadata from the payment provider (webhook data, receipt URL, etc.)
+  metadata        Json?
+
+  paidAt          DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([status])
+  @@index([provider])
+  @@map("payments")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WEBHOOK EVENT
+// ─────────────────────────────────────────────────────────────────────────────
+// Stores incoming webhook events from external services (Stripe, shipping, etc.)
+// Used for:
+//   1. Idempotency — don't process the same event twice
+//   2. Debugging — see exactly what the provider sent
+//   3. Replay — re-process failed events
+//
+// Phase 11 will implement the webhook processing system.
+// ─────────────────────────────────────────────────────────────────────────────
+model WebhookEvent {
+  id          String   @id @default(uuid())
+
+  // Which service sent this event (e.g., "stripe", "shippo")
+  source      String   @db.VarChar(50)
+  // Event type from the provider (e.g., "payment_intent.succeeded")
+  eventType   String   @db.VarChar(100)
+  // The raw payload from the webhook (entire JSON body)
+  payload     Json
+
+  // Processing status
+  processed   Boolean  @default(false)
+  processedAt DateTime?
+  // If processing failed, store the error for debugging
+  error       String?  @db.Text
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([source, eventType])
+  @@index([processed])
+  @@index([createdAt])
+  @@map("webhook_events")
+}

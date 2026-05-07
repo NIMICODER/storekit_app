@@ -1,0 +1,13 @@
+{
+  "_comment": "Prettier Configuration — Automatic Code Formatting",
+  "_note": "Prettier is an opinionated code formatter. Unlike ESLint (which catches bugs), Prettier only handles STYLE — spacing, quotes, commas, line length. It auto-formats on save so you never argue about formatting again. Similar to EditorConfig + StyleCop in .NET land.",
+
+  "semi": true,
+  "singleQuote": true,
+  "tabWidth": 2,
+  "trailingComma": "all",
+  "printWidth": 100,
+  "bracketSpacing": true,
+  "arrowParens": "always",
+  "endOfLine": "lf"
+}

@@ -1,0 +1,91 @@
+{
+  // .eslintrc.json — ESLint Configuration
+  //
+  // ESLint is a static analysis tool (linter) that catches code quality issues
+  // BEFORE runtime. It enforces consistent style and catches common bugs.
+  //
+  // Think of it like the Roslyn analyzers in .NET — it reads your code and
+  // flags issues without running it.
+  //
+  // ESLint is highly configurable through:
+  //   - parser:   how to read your code
+  //   - plugins:  extra rules (we add TypeScript-specific rules)
+  //   - extends:  pre-built rule sets (like templates you inherit from)
+  //   - rules:    individual rule overrides
+
+  // ignorePatterns: Files and directories ESLint should skip entirely.
+  // Generated code (like Prisma Client) shouldn't be linted — we don't control it.
+  "ignorePatterns": ["src/generated/**"],
+
+  // parser: ESLint's default parser understands plain JavaScript.
+  // @typescript-eslint/parser extends it to understand TypeScript syntax.
+  // Without this, ESLint would crash on TypeScript-specific syntax like
+  // type annotations, interfaces, generics, etc.
+  "parser": "@typescript-eslint/parser",
+
+  // parserOptions: Additional options for the TypeScript parser.
+  "parserOptions": {
+    // ecmaVersion: Which ECMAScript features are valid in your code.
+    // "latest" allows all modern JS syntax.
+    "ecmaVersion": "latest",
+
+    // sourceType: "module" means your files use ES module syntax (import/export).
+    "sourceType": "module"
+  },
+
+  // plugins: Adds new rules to ESLint. These rules aren't active yet —
+  // you activate them in "extends" or "rules".
+  // @typescript-eslint adds 100+ TypeScript-aware rules.
+  "plugins": ["@typescript-eslint"],
+
+  // extends: Inherit rule sets. ESLint applies them in order — later ones
+  // override earlier ones (like CSS specificity, but for linting rules).
+  "extends": [
+    // eslint:recommended — ESLint's built-in recommended rules.
+    // Catches common bugs: unused variables, no-undef, no-unreachable, etc.
+    "eslint:recommended",
+
+    // plugin:@typescript-eslint/recommended — TypeScript-specific recommended rules.
+    // Includes things like: no-explicit-any warnings, proper type assertions, etc.
+    // This also turns OFF some base ESLint rules that TypeScript already handles
+    // (like "no-unused-vars" → replaced by "@typescript-eslint/no-unused-vars").
+    "plugin:@typescript-eslint/recommended"
+  ],
+
+  // env: Tells ESLint which global variables are available.
+  // Without this, ESLint would flag 'process', 'console', '__dirname' etc. as undefined.
+  "env": {
+    // node: true — makes Node.js globals available (process, console, Buffer, __dirname...)
+    "node": true,
+    // es2020: true — makes ES2020 globals available (Promise, Map, Set...)
+    "es2020": true
+  },
+
+  // rules: Override or add individual rules.
+  // Values: "off" | "warn" | "error"  (or 0 | 1 | 2)
+  //   "error" — ESLint exits with a non-zero code, blocks CI
+  //   "warn"  — shows a warning but doesn't fail
+  //   "off"   — disables the rule entirely
+  "rules": {
+    // Unused variables are almost always bugs or leftover code.
+    // The { argsIgnorePattern: "^_" } option lets you prefix parameters
+    // with _ to signal intentional non-use: (_req, res) => {}
+    "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+
+    // explicit-function-return-type: Require explicit return types on functions.
+    // We turn this off — TypeScript can usually infer return types, and
+    // requiring explicit types everywhere adds noise. We'll add them only
+    // where inference would be unclear.
+    "@typescript-eslint/explicit-function-return-type": "off",
+
+    // no-explicit-any: Warn when you use 'any' type.
+    // 'any' defeats TypeScript's type safety — use it sparingly.
+    // Warn (not error) because sometimes 'any' is legitimately needed.
+    "@typescript-eslint/no-explicit-any": "warn",
+
+    // no-console: Warn on console.log calls.
+    // In production, we'll use a proper logger (Phase 14).
+    // For now it's a warning, not an error, so development is still easy.
+    "no-console": "warn"
+  }
+}
