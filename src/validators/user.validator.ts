@@ -1,46 +1,11 @@
-/**
- * src/validators/user.validator.ts — User Zod Schemas
- *
- * PURPOSE:
- *   Defines Zod schemas for user-related requests:
- *     - updateUserProfileSchema → PUT /users/:id body
- *     - getUsersQuerySchema     → GET /users query params
- *
- * NOTE:
- *   No createUserSchema here — user creation is handled by the Auth module
- *   (Phase 6) with its own registration schema (email, password, etc.).
- *
- * C# EQUIVALENT:
- *   public class UpdateProfileDto {
- *     [StringLength(100)]
- *     public string? FirstName { get; set; }
- *
- *     [StringLength(100)]
- *     public string? LastName { get; set; }
- *
- *     [Phone]
- *     public string? Phone { get; set; }
- *
- *     public JsonElement? Address { get; set; }
- *   }
- */
+// src/validators/user.validator.ts — User Zod Schemas
 
 import { z } from 'zod';
 import { paginationSchema } from './common.validator';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Update User Profile Schema — PUT /api/v1/users/:id
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Update User Profile Schema ───────────────────────────────────────────────
 
-/**
- * Validates the request body for updating a user's profile.
- *
- * Only allows updating safe profile fields:
- *   firstName, lastName, phone, address
- *
- * Does NOT allow: email, password, role
- * (Those require auth-related operations — Phase 6)
- */
+/** PUT /api/v1/users/:id — safe profile fields only (not email/password/role). */
 export const updateUserProfileSchema = z.object({
   firstName: z
     .string()
@@ -60,25 +25,13 @@ export const updateUserProfileSchema = z.object({
     .optional()
     .nullable(),
 
-  // Address is stored as JSON in the database (Prisma's Json type).
-  // We accept any JSON-compatible value.
+  // Stored as Prisma Json type
   address: z.any().optional(),
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Get Users Query Schema — GET /api/v1/users
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Get Users Query Schema ───────────────────────────────────────────────────
 
-/**
- * Validates query parameters for the user list endpoint.
- *
- * Extends pagination with user-specific filters:
- *   ?role=ADMIN       → filter by role
- *   ?search=john      → search in name/email
- *
- * z.enum() restricts values to a specific set — like C#'s enum:
- *   enum UserRole { ADMIN, CUSTOMER }
- */
+/** GET /api/v1/users — pagination + role filter + text search. */
 export const getUsersQuerySchema = paginationSchema.merge(
   z.object({
     role: z
