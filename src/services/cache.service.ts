@@ -30,7 +30,7 @@ class CacheService {
    */
   async get<T>(key: string): Promise<T | null> {
     try {
-      if (!redisClient.isOpen) return null;
+      if (!redisClient?.isOpen) return null;
 
       const cached = await redisClient.get(key);
 
@@ -63,7 +63,7 @@ class CacheService {
    */
   async set(key: string, value: unknown, ttl?: number): Promise<void> {
     try {
-      if (!redisClient.isOpen) return;
+      if (!redisClient?.isOpen) return;
 
       const serialized = JSON.stringify(value);
 
@@ -88,7 +88,7 @@ class CacheService {
    */
   async del(key: string): Promise<void> {
     try {
-      if (!redisClient.isOpen) return;
+      if (!redisClient?.isOpen) return;
 
       await redisClient.del(key);
     } catch (error) {
@@ -111,7 +111,7 @@ class CacheService {
    */
   async delByPattern(pattern: string): Promise<void> {
     try {
-      if (!redisClient.isOpen) return;
+      if (!redisClient?.isOpen) return;
 
       // scanIterator is redis v5's async iterator for SCAN.
       // It handles cursor management internally — much cleaner than manual SCAN loops.
@@ -135,7 +135,7 @@ class CacheService {
       // the redis v5 TypeScript types only accept a single string for .del().
       // In C#, you'd call db.KeyDelete(keys.Select(k => (RedisKey)k).ToArray()).
       if (keys.length > 0) {
-        await Promise.all(keys.map((key) => redisClient.del(key)));
+        await Promise.all(keys.map((key) => redisClient!.del(key)));
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -152,7 +152,7 @@ class CacheService {
    */
   async flush(): Promise<void> {
     try {
-      if (!redisClient.isOpen) return;
+      if (!redisClient?.isOpen) return;
 
       await redisClient.flushDb();
       // eslint-disable-next-line no-console

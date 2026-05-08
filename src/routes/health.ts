@@ -27,7 +27,7 @@ router.get('/', async (_req: Request, res: Response) => {
   // In C#, this is like calling IConnectionMultiplexer.GetDatabase().Ping().
   let redisStatus = 'disconnected';
   try {
-    if (redisClient.isOpen) {
+    if (redisClient?.isOpen) {
       const pong = await redisClient.ping();
       redisStatus = pong === 'PONG' ? 'connected' : 'disconnected';
     }

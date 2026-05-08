@@ -69,10 +69,22 @@ function createRedisClient(): RedisClientType {
 // ── Singleton Instance ──────────────────────────────────────────────
 // Reuses global instance in dev to avoid connection leaks across hot-reloads.
 
-const redisClient: RedisClientType = globalThis.redisClient ?? createRedisClient();
+// Wrap creation in try-catch so a bad REDIS_URL (e.g. missing protocol)
+// doesn't crash the entire app. If creation fails, redisClient is null
+// and all caching is silently skipped — the app runs without Redis.
+let redisClient: RedisClientType | null = null;
+try {
+  redisClient = globalThis.redisClient ?? createRedisClient();
 
-if (env.isDevelopment) {
-  globalThis.redisClient = redisClient;
+  if (env.isDevelopment) {
+    globalThis.redisClient = redisClient;
+  }
+} catch (error) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    '[Redis] Failed to create client — caching disabled:',
+    error instanceof Error ? error.message : error,
+  );
 }
 
 // ── Lifecycle ───────────────────────────────────────────────────────
@@ -85,6 +97,7 @@ if (env.isDevelopment) {
  * and log a warning instead of crashing.
  */
 export async function connectRedis(): Promise<void> {
+  if (!redisClient) return;
   try {
     await redisClient.connect();
     // eslint-disable-next-line no-console
@@ -107,7 +120,7 @@ export async function connectRedis(): Promise<void> {
 export async function disconnectRedis(): Promise<void> {
   try {
     // Only disconnect if the client is actually connected
-    if (redisClient.isOpen) {
+    if (redisClient?.isOpen) {
       await redisClient.quit();
       // eslint-disable-next-line no-console
       console.log('[Redis] Disconnected');
