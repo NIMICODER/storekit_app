@@ -2,6 +2,7 @@
 
 import { categoryRepository } from '../repositories/category.repository';
 import { NotFoundError, ConflictError, BadRequestError } from '../errors';
+import { clearCache } from '../middleware/cache';
 
 // ── Category Service ─────────────────────────────────────────────────────────
 
@@ -94,7 +95,12 @@ class CategoryService {
       }
     }
 
-    return this.categoryRepo.create(data);
+    const category = await this.categoryRepo.create(data);
+
+    // Bust all cached category lists/details so new category appears immediately.
+    await clearCache('categories');
+
+    return category;
   }
 
   /**
@@ -130,7 +136,12 @@ class CategoryService {
       }
     }
 
-    return this.categoryRepo.update(id, data);
+    const category = await this.categoryRepo.update(id, data);
+
+    // Category name/slug/parent changes affect lists, trees, and detail views.
+    await clearCache('categories');
+
+    return category;
   }
 
   /**
@@ -143,7 +154,12 @@ class CategoryService {
       throw new NotFoundError('Category', id);
     }
 
-    return this.categoryRepo.delete(id);
+    const result = await this.categoryRepo.delete(id);
+
+    // Deleted category must vanish from all cached views.
+    await clearCache('categories');
+
+    return result;
   }
 }
 

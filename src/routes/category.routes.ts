@@ -11,6 +11,7 @@ import {
   deleteCategory,
 } from '../controllers/category.controller';
 import { validate } from '../middleware/validate';
+import { cacheMiddleware } from '../middleware/cache';
 import { idParamSchema, slugParamSchema } from '../validators/common.validator';
 import {
   createCategorySchema,
@@ -21,15 +22,18 @@ import {
 const router = Router();
 
 // ── Route Definitions ────────────────────────────────────────────────────────
+// Read routes use cacheMiddleware('categories') — responses are cached in Redis.
+// Write routes are NOT cached, and the service layer clears the cache after writes.
 
-router.get('/', getCategories);
+router.get('/', cacheMiddleware('categories'), getCategories);
 
 // slug route must precede /:id to avoid slug being captured as an id
-router.get('/slug/:slug', validate({ params: slugParamSchema }), getCategoryBySlug);
-router.get('/:id', validate({ params: idParamSchema }), getCategoryById);
+router.get('/slug/:slug', validate({ params: slugParamSchema }), cacheMiddleware('categories'), getCategoryBySlug);
+router.get('/:id', validate({ params: idParamSchema }), cacheMiddleware('categories'), getCategoryById);
 router.get(
   '/:id/products',
   validate({ params: idParamSchema, query: getCategoryProductsQuerySchema }),
+  cacheMiddleware('categories'),
   getCategoryProducts,
 );
 

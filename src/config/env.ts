@@ -45,6 +45,15 @@ export const env = {
   jwtRefreshExpiry: getOptionalEnv('JWT_REFRESH_EXPIRY', '7d'),
   bcryptRounds: parseInt(getOptionalEnv('BCRYPT_ROUNDS', '10'), 10),
 
+  // ── Redis (Phase 9) ──────────────────────────────────────────────
+  // Connection URL for the Redis server (used for caching).
+  // In C#, this is like your ConnectionStrings["Redis"] in appsettings.json.
+  redisUrl: getOptionalEnv('REDIS_URL', 'redis://localhost:6379'),
+
+  // Default cache TTL in seconds. Individual routes can override this.
+  // Think of it like MemoryCache's AbsoluteExpirationRelativeToNow in C#.
+  cacheTtl: parseInt(getOptionalEnv('CACHE_TTL', '3600'), 10),
+
   // ── File Uploads ──────────────────────────────────────────────────
   uploadDir: getOptionalEnv('UPLOAD_DIR', './uploads'),
   maxFileSize: parseInt(getOptionalEnv('MAX_FILE_SIZE', '5242880'), 10),

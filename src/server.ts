@@ -3,11 +3,16 @@
 import app from './app';
 import { env } from './config/env';
 import { connectDatabase, disconnectDatabase } from './config/database';
+import { connectRedis, disconnectRedis } from './config/redis';
 
 // ── Startup ─────────────────────────────────────────────────────────
 
 async function startServer(): Promise<void> {
+  // Connect to PostgreSQL (required — throws if unreachable)
   await connectDatabase();
+
+  // Connect to Redis (optional — logs warning if unreachable, app still works)
+  await connectRedis();
 
   const server = app.listen(env.port, () => {
     // eslint-disable-next-line no-console
@@ -38,6 +43,7 @@ async function startServer(): Promise<void> {
       }
 
       await disconnectDatabase();
+      await disconnectRedis();
 
       // eslint-disable-next-line no-console
       console.log('[Server] All connections closed. Exiting cleanly.');

@@ -1788,3 +1788,333 @@ curl -X POST .../images
 *Phase 8 complete. Products can now have images uploaded, processed (resized + WebP), and served statically.*
 *The upload infrastructure is local-first but designed for easy cloud migration — only one service file needs changing.*
 *When you're ready, say "move to next phase" for Phase 9: Caching with Redis.*
+
+---
+
+# Phase 9 — Caching with Redis
+
+## What Was Built
+
+```
+Files Created:
+  src/config/redis.ts             ← Redis client singleton (mirrors database.ts pattern)
+  src/services/cache.service.ts   ← Cache abstraction — get, set, del, delByPattern, flush
+  src/middleware/cache.ts          ← Route-level caching middleware + clearCache() helper
+
+Files Modified:
+  src/config/env.ts               ← Added REDIS_URL and CACHE_TTL env vars
+  src/routes/product.routes.ts    ← GET routes wrapped with cacheMiddleware('products')
+  src/routes/category.routes.ts   ← GET routes wrapped with cacheMiddleware('categories')
+  src/services/product.service.ts ← clearCache('products') after create/update/delete
+  src/services/category.service.ts← clearCache('categories') after create/update/delete
+  src/routes/health.ts            ← Health endpoint now reports Redis connection status
+  src/server.ts                   ← connectRedis() at startup, disconnectRedis() at shutdown
+  .env.example                    ← Documented Redis env vars
+  package.json                    ← Added redis v5 dependency
+```
+
+## Key Concepts
+
+### 1. Cache-Aside (Read-Through) Pattern
+
+The most common caching strategy. The application manages the cache explicitly:
+
+```
+Request → Check cache → HIT?  → Return cached data (skip DB)
+                      → MISS? → Query DB → Store in cache → Return data
+```
+
+In C#, you'd do this manually with `IDistributedCache.GetString()` / `SetString()`.
+Here, the middleware automates it — controllers don't know caching exists.
+
+Other caching patterns we didn't use:
+- **Write-through** — write to cache AND database on every mutation
+- **Write-behind** — write to cache, async flush to database later
+- **Read-through** — cache itself fetches from the database on miss
+
+Cache-aside is the simplest and most appropriate for a REST API.
+
+### 2. Cache Invalidation
+
+> "There are only two hard things in Computer Science: cache invalidation and naming things."
+
+We use **pattern-based invalidation**: when a product is created/updated/deleted,
+we clear ALL keys matching `products:*`. This is simple and safe — it over-invalidates
+(some cache entries weren't stale), but it guarantees no stale data.
+
+```typescript
+// In product.service.ts — after any write operation:
+await clearCache('products');
+// This calls cacheService.delByPattern('products:*')
+// which uses SCAN to find all matching keys, then DEL each one
+```
+
+Alternatives we didn't use:
+- **Exact key invalidation** — more efficient but fragile (miss a key = stale data)
+- **Cache tags** — best of both worlds, but Redis doesn't support natively
+- **Event-driven** — invalidate via pub/sub (overkill for our use case)
+
+### 3. TTL (Time-to-Live)
+
+Every cached entry auto-expires after `CACHE_TTL` seconds (default: 1 hour).
+This is the safety net — even if invalidation fails, stale data eventually disappears.
+Redis handles expiry natively with the `EX` flag on SET.
+
+```typescript
+await redisClient.set(key, serialized, { EX: ttl });
+// Redis will automatically delete this key after `ttl` seconds
+```
+
+C# equivalent: `DistributedCacheEntryOptions.AbsoluteExpirationRelativeToNow`.
+
+### 4. Graceful Degradation
+
+Redis failing is NOT fatal. If Redis is down:
+- `cacheService.get()` returns `null` (cache miss → hit DB instead)
+- `cacheService.set()` silently does nothing
+- The app works perfectly — just without caching (slower)
+- Server startup logs a warning but doesn't crash
+
+This is a deliberate design choice. A cache is an optimization, not a requirement.
+
+```typescript
+// Every CacheService method checks this first:
+if (!redisClient.isOpen) return null;  // Redis down? No problem, skip caching
+```
+
+### 5. res.json() Interception
+
+Express has no built-in "after response" hook, so we override `res.json()` with
+a wrapper that caches the response body before sending it. This is a common Express
+pattern — libraries like `compression` use the same technique.
+
+```typescript
+const originalJson = res.json.bind(res);
+res.json = ((body: unknown) => {
+  if (res.statusCode === 200) {
+    cacheService.set(key, body, ttl);  // fire-and-forget — don't delay the response
+  }
+  return originalJson(body);  // call the real res.json
+}) as Response['json'];
+```
+
+In C#, you'd use `IAsyncResultFilter.OnResultExecutionAsync()` or
+`IOutputCachePolicy` — framework hooks that don't require this kind of monkey-patching.
+
+### 6. SCAN vs KEYS
+
+For pattern-based deletion (`products:*`), we use Redis `SCAN` instead of `KEYS`:
+- `KEYS *` blocks the entire Redis server while it searches — **never use in production**
+- `SCAN` is cursor-based, processes in batches, non-blocking
+
+```typescript
+// redis v5 async iterator — handles cursor management automatically
+for await (const keyOrKeys of redisClient.scanIterator({ MATCH: pattern, COUNT: 100 })) {
+  // Each iteration may yield a single key (string) or a batch (string[])
+  // We normalize and collect, then delete all at once
+}
+```
+
+C# equivalent: `IServer.Keys()` with `pageSize` parameter in StackExchange.Redis.
+
+### 7. Cache Key Design
+
+Cache keys include the full URL with query params, namespaced by prefix:
+
+```
+products:/api/v1/products                         ← all products (default query)
+products:/api/v1/products?page=2&limit=10         ← page 2
+products:/api/v1/products?sort=price:asc          ← sorted by price
+products:/api/v1/products/abc-123                 ← single product
+categories:/api/v1/categories                     ← all categories
+categories:/api/v1/categories/def-456/products    ← category's products
+```
+
+Each unique query string produces a separate cache entry.
+This means `?page=1` and `?page=2` are cached independently — correct behavior!
+
+### 8. Redis Connection Singleton
+
+The Redis client follows the same pattern as our Prisma singleton:
+
+```typescript
+declare global {
+  var redisClient: RedisClientType | undefined;
+}
+
+const redisClient = globalThis.redisClient ?? createRedisClient();
+
+if (env.isDevelopment) {
+  globalThis.redisClient = redisClient;  // survives hot-reloads
+}
+```
+
+C# equivalent:
+```csharp
+services.AddSingleton<IConnectionMultiplexer>(
+    ConnectionMultiplexer.Connect(config["Redis:ConnectionString"])
+);
+```
+
+## Architecture Diagram
+
+```
+                    ┌──────────────┐
+  GET /products ──→ │ cacheMiddle- │──→ Cache HIT ──→ res.json(cached)
+                    │   ware       │
+                    └──────┬───────┘
+                           │ Cache MISS
+                           ▼
+                    ┌──────────────┐
+                    │  Controller  │
+                    └──────┬───────┘
+                           │
+                           ▼
+                    ┌──────────────┐
+                    │   Service    │
+                    └──────┬───────┘
+                           │
+                           ▼
+                    ┌──────────────┐     ┌───────────┐
+                    │  Repository  │────→│ PostgreSQL │
+                    └──────────────┘     └───────────┘
+                           │
+                           ▼
+                    res.json(data)
+                           │
+                    ┌──────┴───────┐
+                    │ Intercepted: │
+                    │ cache.set()  │────→ Redis
+                    └──────────────┘
+
+
+  POST/PUT/DELETE ──→ Controller ──→ Service ──→ clearCache('products')
+                                                        │
+                                                        ▼
+                                                 Redis: DEL products:*
+```
+
+## What Gets Cached
+
+| Route | Cache Key Prefix | TTL | Invalidated By |
+|-------|-----------------|-----|----------------|
+| `GET /products` | `products:` | 1 hour | Create/update/delete any product |
+| `GET /products/:id` | `products:` | 1 hour | Create/update/delete any product |
+| `GET /products/slug/:slug` | `products:` | 1 hour | Create/update/delete any product |
+| `GET /categories` | `categories:` | 1 hour | Create/update/delete any category |
+| `GET /categories/:id` | `categories:` | 1 hour | Create/update/delete any category |
+| `GET /categories/slug/:slug` | `categories:` | 1 hour | Create/update/delete any category |
+| `GET /categories/:id/products` | `categories:` | 1 hour | Create/update/delete any category |
+
+Routes NOT cached (write operations):
+- `POST /products`, `PUT /products/:id`, `PATCH /products/:id`, `DELETE /products/:id`
+- `POST /categories`, `PUT /categories/:id`, `DELETE /categories/:id`
+
+## Health Check
+
+The health endpoint now reports Redis status alongside database status:
+
+```json
+{
+  "success": true,
+  "data": {
+    "status": "ok",
+    "services": {
+      "database": "connected",
+      "redis": "connected"
+    }
+  }
+}
+```
+
+If Redis is down, the health check shows `"redis": "disconnected"` — the rest of
+the API still works (just without caching).
+
+## C# / .NET Comparison
+
+| Concept | Node.js (this project) | C# / .NET |
+|---------|----------------------|-----------|
+| Redis client | `redis` npm package (v5) | StackExchange.Redis |
+| Cache abstraction | `CacheService` class | `IDistributedCache` interface |
+| Connection | `createClient({ url })` | `ConnectionMultiplexer.Connect()` |
+| Singleton | Global variable + factory | `services.AddSingleton<IConnectionMultiplexer>()` |
+| GET | `client.get(key)` → JSON.parse | `cache.GetString(key)` → JsonDeserialize |
+| SET | `client.set(key, val, { EX })` | `cache.SetString(key, val, opts)` |
+| Route caching | Custom middleware factory | `[ResponseCache]` attribute or `UseOutputCache()` |
+| Pattern delete | `SCAN` + `DEL` loop | `IServer.Keys()` + `KeyDelete()` |
+| Health check | `client.ping()` in health route | `IHealthCheck` implementation |
+| Graceful shutdown | `client.quit()` in SIGTERM handler | `IHostApplicationLifetime.ApplicationStopping` |
+| Cache invalidation | Manual `clearCache('products')` | `IOutputCacheStore.EvictByTagAsync()` |
+
+## Testing Phase 9
+
+### Prerequisites
+
+Make sure Redis is running locally:
+
+```bash
+# If using Docker:
+docker run -d --name redis -p 6379:6379 redis:alpine
+
+# Verify it's running:
+redis-cli ping    # Should return "PONG"
+```
+
+### Testing Cache Behavior
+
+```bash
+# 1. Start the server
+npm run dev
+
+# 2. Hit a GET endpoint twice — second request should be faster
+curl http://localhost:3000/api/v1/products
+curl http://localhost:3000/api/v1/products    # Served from cache!
+
+# 3. Check Redis for cached keys
+redis-cli KEYS "*"
+# Should show: products:/api/v1/products
+
+# 4. Create a product — cache should be invalidated
+curl -X POST http://localhost:3000/api/v1/products \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{"name":"Cache Test","price":10,"stock":5}'
+
+# 5. Verify cache was cleared
+redis-cli KEYS "*"
+# "products:*" keys should be gone
+
+# 6. Check health endpoint for Redis status
+curl http://localhost:3000/api/v1/health
+# services.redis should show "connected"
+```
+
+### Testing Without Redis (Graceful Degradation)
+
+Stop Redis and verify the app still works:
+
+```bash
+docker stop redis
+npm run dev            # Starts with warning, doesn't crash
+curl http://localhost:3000/api/v1/products   # Still works (hits DB directly)
+curl http://localhost:3000/api/v1/health     # services.redis = "disconnected"
+```
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `REDIS_URL` | No | `redis://localhost:6379` | Redis connection URL |
+| `CACHE_TTL` | No | `3600` (1 hour) | Default cache TTL in seconds |
+
+## New Dependencies
+
+| Package | Version | Purpose | C# Equivalent |
+|---------|---------|---------|---------------|
+| `redis` | ^5.12.1 | Redis client for Node.js | StackExchange.Redis |
+
+---
+
+*Phase 9 complete. GET routes are now cached in Redis with automatic invalidation on writes.*
+*Redis failures are non-fatal — the app degrades gracefully to direct DB queries.*
+*When you're ready, say "move to next phase" for Phase 10: Background Jobs & Queue Processing.*

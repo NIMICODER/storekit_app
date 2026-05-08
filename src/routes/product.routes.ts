@@ -11,6 +11,7 @@ import {
   deleteProduct,
 } from '../controllers/product.controller';
 import { validate } from '../middleware/validate';
+import { cacheMiddleware } from '../middleware/cache';
 import { idParamSchema, slugParamSchema } from '../validators/common.validator';
 import {
   createProductSchema,
@@ -22,12 +23,16 @@ import {
 const router = Router();
 
 // ── Route Definitions ────────────────────────────────────────────────────────
+// Read routes use cacheMiddleware('products') — responses are cached in Redis.
+// The cache key includes the full URL + query params, so /products?page=1
+// and /products?page=2 are cached separately. Write routes (POST/PUT/PATCH/DELETE)
+// are NOT cached — and the service layer clears the cache after each write.
 
-router.get('/', validate({ query: getProductsQuerySchema }), getProducts);
+router.get('/', validate({ query: getProductsQuerySchema }), cacheMiddleware('products'), getProducts);
 
 // slug route must precede /:id to avoid slug being captured as an id
-router.get('/slug/:slug', validate({ params: slugParamSchema }), getProductBySlug);
-router.get('/:id', validate({ params: idParamSchema }), getProductById);
+router.get('/slug/:slug', validate({ params: slugParamSchema }), cacheMiddleware('products'), getProductBySlug);
+router.get('/:id', validate({ params: idParamSchema }), cacheMiddleware('products'), getProductById);
 
 router.post('/', validate({ body: createProductSchema }), createProduct);
 router.put('/:id', validate({ params: idParamSchema, body: updateProductSchema }), updateProduct);

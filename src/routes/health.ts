@@ -3,6 +3,7 @@
 import { Router, Request, Response } from 'express';
 import { sendSuccess } from '../utils/apiResponse';
 import prisma from '../config/database';
+import redisClient from '../config/redis';
 
 const router = Router();
 
@@ -21,6 +22,19 @@ router.get('/', async (_req: Request, res: Response) => {
     databaseStatus = 'disconnected';
   }
 
+  // Verify Redis connectivity with a PING command.
+  // PING is the standard Redis health check — it returns "PONG" if alive.
+  // In C#, this is like calling IConnectionMultiplexer.GetDatabase().Ping().
+  let redisStatus = 'disconnected';
+  try {
+    if (redisClient.isOpen) {
+      const pong = await redisClient.ping();
+      redisStatus = pong === 'PONG' ? 'connected' : 'disconnected';
+    }
+  } catch {
+    redisStatus = 'disconnected';
+  }
+
   sendSuccess(res, {
     status: 'ok',
     environment: process.env.NODE_ENV ?? 'development',
@@ -33,7 +47,7 @@ router.get('/', async (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
     services: {
       database: databaseStatus,
-      redis: 'not_configured', // Phase 9
+      redis: redisStatus,
     },
   });
 });

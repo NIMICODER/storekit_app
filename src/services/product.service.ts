@@ -5,6 +5,7 @@ import { categoryRepository } from '../repositories/category.repository';
 import type { FindActiveProductsParams } from '../repositories/product.repository';
 import { NotFoundError, ConflictError } from '../errors';
 import { generateSlug } from '../utils/slug';
+import { clearCache } from '../middleware/cache';
 
 // ── Product Service ──────────────────────────────────────────────────────────
 
@@ -83,7 +84,14 @@ class ProductService {
       }
     }
 
-    return this.productRepo.create(data);
+    const product = await this.productRepo.create(data);
+
+    // Bust all cached product lists/details so new product appears immediately.
+    // In C#, you'd call IDistributedCache.Remove() for each affected key,
+    // or use cache tags with IOutputCacheStore.EvictByTagAsync().
+    await clearCache('products');
+
+    return product;
   }
 
   /**
@@ -118,7 +126,12 @@ class ProductService {
       }
     }
 
-    return this.productRepo.update(id, data);
+    const product = await this.productRepo.update(id, data);
+
+    // Any update could change list order, detail view, or slug lookup — clear all.
+    await clearCache('products');
+
+    return product;
   }
 
   /**
@@ -131,7 +144,12 @@ class ProductService {
       throw new NotFoundError('Product', id);
     }
 
-    return this.productRepo.softDelete(id);
+    const product = await this.productRepo.softDelete(id);
+
+    // Soft-deleted product must vanish from all cached lists and detail views.
+    await clearCache('products');
+
+    return product;
   }
 
   // ── Private Helpers ────────────────────────────────────────────────────────
