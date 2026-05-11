@@ -23,6 +23,22 @@ app.use(
     allowedHeaders: ['Content-Type', 'Authorization'],
   }),
 );
+// ── Webhook Raw Body Parsing (Phase 11) ──────────────────────────
+// Webhook routes need the RAW request body (not parsed JSON) for HMAC
+// signature verification. express.raw() preserves the exact bytes.
+//
+// IMPORTANT: This must come BEFORE express.json(), because Express
+// stops parsing once the first body parser matches. The path filter
+// ensures only webhook routes get raw bodies; everything else gets JSON.
+//
+// In C#/ASP.NET, you'd use [DisableRequestSizeLimit] and manually
+// read Request.Body as a stream. Express gives us a more declarative
+// approach with path-based body parser selection.
+app.use(
+  `/api/${env.apiVersion}/webhooks`,
+  express.raw({ type: 'application/json', limit: '10kb' }),
+);
+
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
