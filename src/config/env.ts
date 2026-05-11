@@ -95,6 +95,24 @@ export const env = {
   // Payment provider name (for logging/labelling). Not used for API calls in dev.
   paymentProvider: getOptionalEnv('PAYMENT_PROVIDER', 'mock'),
 
+  // ── Rate Limiting (Phase 12) ──────────────────────────────────────
+  // Global rate limit window and max requests per window per IP.
+  //
+  // The window is in milliseconds. Default: 900,000ms = 15 minutes.
+  // The max is the number of requests allowed in that window.
+  //
+  // C# COMPARISON:
+  //   In ASP.NET, you configure this in AddRateLimiter():
+  //   options.AddFixedWindowLimiter("global", opt => {
+  //     opt.Window = TimeSpan.FromMinutes(15);
+  //     opt.PermitLimit = 100;
+  //   });
+  //
+  // These are just the global defaults — auth routes (10/15min) and
+  // strict routes (20/15min) have their own hardcoded limits.
+  rateLimitWindowMs: parseInt(getOptionalEnv('RATE_LIMIT_WINDOW_MS', '900000'), 10),
+  rateLimitMax: parseInt(getOptionalEnv('RATE_LIMIT_MAX', '100'), 10),
+
   // ── Convenience Booleans ──────────────────────────────────────────
   isDevelopment: getOptionalEnv('NODE_ENV', 'development') === 'development',
   isProduction: getOptionalEnv('NODE_ENV', 'development') === 'production',

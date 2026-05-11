@@ -11,6 +11,20 @@ const router = Router();
 
 // ── Route Handlers ───────────────────────────────────────────────────────────
 
+/**
+ * @openapi
+ * /health:
+ *   get:
+ *     tags: [Health]
+ *     summary: Full health check
+ *     description: |
+ *       Returns environment, uptime, memory usage, and connectivity status
+ *       for all services (database, Redis, BullMQ). Also reports queue
+ *       statistics (waiting, active, completed, failed job counts).
+ *     responses:
+ *       200:
+ *         description: Health check results with service statuses
+ */
 /** GET /api/v1/health — full health check with environment, uptime, memory, and service status. */
 router.get('/', async (_req: Request, res: Response) => {
   const memoryUsage = process.memoryUsage();
@@ -69,6 +83,23 @@ router.get('/', async (_req: Request, res: Response) => {
   });
 });
 
+/**
+ * @openapi
+ * /health/ping:
+ *   get:
+ *     tags: [Health]
+ *     summary: Liveness probe (minimal)
+ *     description: Lightweight ping endpoint for load balancers and Kubernetes probes. No database calls.
+ *     parameters:
+ *       - in: query
+ *         name: echo
+ *         schema:
+ *           type: string
+ *         description: Optional string echoed back in the response
+ *     responses:
+ *       200:
+ *         description: Pong response with timestamp
+ */
 /** GET /api/v1/health/ping — minimal liveness probe, no DB calls. */
 router.get('/ping', (req: Request, res: Response) => {
   const echo = typeof req.query.echo === 'string' ? req.query.echo : undefined;

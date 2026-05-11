@@ -1,7 +1,7 @@
 {
 	"info": {
-		"name": "StoreKit API — Phase 9",
-		"description": "Full e-commerce API with auth, caching, and file uploads.\n\nBase URL: http://localhost:3000/api/v1\n\nSetup:\n1. `npm run dev`\n2. `npm run db:seed` (first time)\n3. Use \"Login as Admin (auto-save)\" to get tokens\n4. Protected routes use {{accessToken}} automatically",
+		"name": "StoreKit API — Phase 11",
+		"description": "Full e-commerce API with auth, caching, file uploads, background jobs, cart, orders, and webhooks.\n\nBase URL: http://localhost:3000/api/v1\n\nSetup:\n1. `npm run dev`\n2. `npm run db:seed` (first time)\n3. Use \"Login as Admin (auto-save)\" to get tokens\n4. Protected routes use {{accessToken}} automatically",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"variable": [
@@ -28,6 +28,14 @@
 		{
 			"key": "userId",
 			"value": "PASTE_USER_ID_HERE"
+		},
+		{
+			"key": "orderId",
+			"value": "PASTE_ORDER_ID_HERE"
+		},
+		{
+			"key": "cartItemId",
+			"value": "PASTE_CART_ITEM_ID_HERE"
 		}
 	],
 	"item": [
@@ -318,10 +326,10 @@
 		},
 		{
 			"name": "Health",
-			"description": "Health check now reports DB + Redis status.",
+			"description": "Health check now reports DB + Redis + BullMQ status.",
 			"item": [
 				{
-					"name": "Health Check (DB + Redis status)",
+					"name": "Health Check (DB + Redis + BullMQ status)",
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -849,6 +857,283 @@
 							"raw": "{{baseUrl}}/users/{{userId}}",
 							"host": ["{{baseUrl}}"],
 							"path": ["users", "{{userId}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Cart (auth required)",
+			"description": "Shopping cart management. All routes require authentication.\nUse \"Login (auto-save tokens)\" first to set the accessToken variable.",
+			"item": [
+				{
+					"name": "Get Cart",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/cart",
+							"host": ["{{baseUrl}}"],
+							"path": ["cart"]
+						}
+					}
+				},
+				{
+					"name": "Add Item to Cart",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"productId\": \"{{productId}}\",\n  \"quantity\": 2\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/cart/items",
+							"host": ["{{baseUrl}}"],
+							"path": ["cart", "items"]
+						}
+					}
+				},
+				{
+					"name": "Update Cart Item Quantity",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"quantity\": 5\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/cart/items/{{cartItemId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["cart", "items", "{{cartItemId}}"]
+						}
+					}
+				},
+				{
+					"name": "Remove Cart Item",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/cart/items/{{cartItemId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["cart", "items", "{{cartItemId}}"]
+						}
+					}
+				},
+				{
+					"name": "Clear Cart",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/cart",
+							"host": ["{{baseUrl}}"],
+							"path": ["cart"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Orders (auth required)",
+			"description": "Order management: checkout, order history, admin status updates.\nAll routes require authentication. Status updates require ADMIN role.",
+			"item": [
+				{
+					"name": "Checkout",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"shippingAddress\": {\n    \"street\": \"123 Main St\",\n    \"city\": \"Portland\",\n    \"state\": \"OR\",\n    \"zip\": \"97201\",\n    \"country\": \"US\"\n  },\n  \"notes\": \"Please leave at front door\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/orders/checkout",
+							"host": ["{{baseUrl}}"],
+							"path": ["orders", "checkout"]
+						}
+					}
+				},
+				{
+					"name": "Checkout (auto-save orderId)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    var json = pm.response.json();",
+									"    pm.collectionVariables.set('orderId', json.data.id);",
+									"    console.log('Order ID saved:', json.data.id);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"shippingAddress\": {\n    \"street\": \"456 Oak Ave\",\n    \"city\": \"Seattle\",\n    \"state\": \"WA\",\n    \"zip\": \"98101\",\n    \"country\": \"US\"\n  },\n  \"notes\": \"Ring doorbell\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/orders/checkout",
+							"host": ["{{baseUrl}}"],
+							"path": ["orders", "checkout"]
+						}
+					}
+				},
+				{
+					"name": "Checkout (empty cart → 400)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"shippingAddress\": {\n    \"street\": \"789 Pine Rd\",\n    \"city\": \"Denver\",\n    \"state\": \"CO\",\n    \"zip\": \"80202\",\n    \"country\": \"US\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/orders/checkout",
+							"host": ["{{baseUrl}}"],
+							"path": ["orders", "checkout"]
+						}
+					}
+				},
+				{
+					"name": "Get My Orders",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/orders?page=1&limit=10",
+							"host": ["{{baseUrl}}"],
+							"path": ["orders"],
+							"query": [
+								{ "key": "page", "value": "1" },
+								{ "key": "limit", "value": "10" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Order by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/orders/{{orderId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["orders", "{{orderId}}"]
+						}
+					}
+				},
+				{
+					"name": "Update Order Status (ADMIN)",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": \"CONFIRMED\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/orders/{{orderId}}/status",
+							"host": ["{{baseUrl}}"],
+							"path": ["orders", "{{orderId}}", "status"]
+						}
+					}
+				},
+				{
+					"name": "Update Order Status (invalid transition → 400)",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": \"DELIVERED\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/orders/{{orderId}}/status",
+							"host": ["{{baseUrl}}"],
+							"path": ["orders", "{{orderId}}", "status"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Webhooks",
+			"description": "Incoming webhook endpoints from external payment providers.\nPayment webhook uses HMAC-SHA256 signature verification (no JWT auth).\nSimulate endpoint requires auth (dev only).",
+			"item": [
+				{
+					"name": "Simulate Payment (dev only)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{accessToken}}" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"orderId\": \"{{orderId}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/webhooks/payment/simulate",
+							"host": ["{{baseUrl}}"],
+							"path": ["webhooks", "payment", "simulate"]
+						}
+					}
+				},
+				{
+					"name": "Payment Webhook (no signature → 400)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"test\": true\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/webhooks/payment",
+							"host": ["{{baseUrl}}"],
+							"path": ["webhooks", "payment"]
 						}
 					}
 				}
