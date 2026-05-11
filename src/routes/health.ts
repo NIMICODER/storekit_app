@@ -4,6 +4,8 @@ import { Router, Request, Response } from 'express';
 import { sendSuccess } from '../utils/apiResponse';
 import prisma from '../config/database';
 import redisClient from '../config/redis';
+import { isBullMQConnected } from '../config/bullmq';
+import { getQueueStats } from '../queues/setup';
 
 const router = Router();
 
@@ -35,6 +37,19 @@ router.get('/', async (_req: Request, res: Response) => {
     redisStatus = 'disconnected';
   }
 
+  // Check BullMQ (IORedis) connectivity.
+  // This is a separate connection from the cache Redis client above.
+  const bullmqStatus = isBullMQConnected() ? 'connected' : 'disconnected';
+
+  // Get queue job counts (waiting, active, completed, failed).
+  // In C#, this is like querying Hangfire's IMonitoringApi.GetStatistics().
+  let queueStats: Record<string, Record<string, number>> = {};
+  try {
+    queueStats = await getQueueStats();
+  } catch {
+    // Non-fatal — health endpoint still returns other info.
+  }
+
   sendSuccess(res, {
     status: 'ok',
     environment: process.env.NODE_ENV ?? 'development',
@@ -48,7 +63,9 @@ router.get('/', async (_req: Request, res: Response) => {
     services: {
       database: databaseStatus,
       redis: redisStatus,
+      bullmq: bullmqStatus,
     },
+    queues: queueStats,
   });
 });
 

@@ -29,8 +29,15 @@ declare global {
  * until you call `.connect()`.
  */
 function createRedisClient(): RedisClientType {
+  // Normalise the URL — if someone sets REDIS_URL=127.0.0.1:6379 without
+  // the protocol, the `redis` package throws "Invalid URL". This guard
+  // auto-prepends redis:// so it works either way.
+  const redisUrl = env.redisUrl.startsWith('redis://')
+    ? env.redisUrl
+    : `redis://${env.redisUrl}`;
+
   const client = createClient({
-    url: env.redisUrl,
+    url: redisUrl,
 
     // Retry connecting with exponential backoff (max 3 seconds between retries).
     // In C#, StackExchange.Redis handles this internally with its reconnect logic.

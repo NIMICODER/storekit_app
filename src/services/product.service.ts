@@ -6,6 +6,7 @@ import type { FindActiveProductsParams } from '../repositories/product.repositor
 import { NotFoundError, ConflictError } from '../errors';
 import { generateSlug } from '../utils/slug';
 import { clearCache } from '../middleware/cache';
+import { queueLowStockCheck } from '../queues/inventory.queue';
 
 // ── Product Service ──────────────────────────────────────────────────────────
 
@@ -130,6 +131,27 @@ class ProductService {
 
     // Any update could change list order, detail view, or slug lookup — clear all.
     await clearCache('products');
+
+    // ── Low Stock Detection (Phase 10) ────────────────────────────
+    // If the stock field was updated, dispatch a background job to check
+    // if it dropped below the threshold. The inventory worker decides
+    // whether to send an alert email — we don't block the API response.
+    //
+    // In C#, this is like raising a domain event:
+    //   await _mediator.Publish(new StockUpdatedEvent(product));
+    if (data.stock !== undefined) {
+      // Fire-and-forget: don't await — the API responds immediately.
+      // If queueing fails, the product update still succeeds.
+      queueLowStockCheck({
+        productId: product.id,
+        productName: product.name,
+        currentStock: data.stock,
+        sku: product.sku ?? null,
+      }).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.warn('[ProductService] Failed to queue low-stock check:', err);
+      });
+    }
 
     return product;
   }

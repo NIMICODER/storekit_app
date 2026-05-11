@@ -4,6 +4,10 @@ import app from './app';
 import { env } from './config/env';
 import { connectDatabase, disconnectDatabase } from './config/database';
 import { connectRedis, disconnectRedis } from './config/redis';
+import { closeBullMQConnection } from './config/bullmq';
+import { closeAllQueues } from './queues/setup';
+import { startAllWorkers, stopAllWorkers } from './workers';
+import { registerAllEvents } from './events';
 
 // ── Startup ─────────────────────────────────────────────────────────
 
@@ -13,6 +17,17 @@ async function startServer(): Promise<void> {
 
   // Connect to Redis (optional — logs warning if unreachable, app still works)
   await connectRedis();
+
+  // Start BullMQ background workers (after Redis is connected).
+  // Workers pull jobs from queues and process them asynchronously.
+  // In C#, this is like app.Services.GetRequiredService<IHostedService>().StartAsync().
+  await startAllWorkers();
+
+  // Register internal event handlers (Phase 11).
+  // The event bus uses Node.js EventEmitter for in-process pub/sub.
+  // Handlers dispatch to BullMQ queues for async processing.
+  // In C#, this is like services.AddMediatR() in Startup.cs.
+  registerAllEvents();
 
   const server = app.listen(env.port, () => {
     // eslint-disable-next-line no-console
@@ -42,8 +57,22 @@ async function startServer(): Promise<void> {
         process.exit(1);
       }
 
-      await disconnectDatabase();
+      // ── Shutdown Order (Critical!) ────────────────────────────────
+      // The order matters: drain workers before closing their connections.
+      // In C#, IHost.StopAsync() handles this via the hosted service
+      // dependency graph. Here we do it manually.
+      //
+      //   1. stopAllWorkers()         — drain running jobs
+      //   2. closeAllQueues()         — close queue producers
+      //   3. closeBullMQConnection()  — close IORedis (BullMQ driver)
+      //   4. disconnectRedis()        — close cache Redis (node-redis driver)
+      //   5. disconnectDatabase()     — close Prisma/PostgreSQL
+
+      await stopAllWorkers();
+      await closeAllQueues();
+      await closeBullMQConnection();
       await disconnectRedis();
+      await disconnectDatabase();
 
       // eslint-disable-next-line no-console
       console.log('[Server] All connections closed. Exiting cleanly.');

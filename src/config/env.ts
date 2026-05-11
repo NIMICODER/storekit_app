@@ -62,6 +62,39 @@ export const env = {
     'image/jpeg,image/png,image/webp',
   ).split(','),
 
+  // ── Queue / BullMQ (Phase 10) ────────────────────────────────────
+  // BullMQ uses IORedis under the hood (different driver from the `redis` v5 cache client).
+  // Both drivers connect to the same Redis server — they just speak different dialects.
+  // In C#, this is like using both StackExchange.Redis and ServiceStack.Redis in one project.
+  bullRedisUrl: getOptionalEnv('BULL_REDIS_URL', getOptionalEnv('REDIS_URL', 'redis://localhost:6379')),
+  bullMaxRetries: parseInt(getOptionalEnv('BULL_MAX_RETRIES', '3'), 10),
+  bullRetryBackoff: parseInt(getOptionalEnv('BULL_RETRY_BACKOFF', '1000'), 10),
+  bullConcurrency: parseInt(getOptionalEnv('BULL_CONCURRENCY', '5'), 10),
+
+  // ── Inventory Thresholds (Phase 10) ─────────────────────────────
+  lowStockThreshold: parseInt(getOptionalEnv('LOW_STOCK_THRESHOLD', '10'), 10),
+  abandonedCartHours: parseInt(getOptionalEnv('ABANDONED_CART_HOURS', '24'), 10),
+
+  // ── Email / SMTP (Phase 10) ─────────────────────────────────────
+  // In development, we use Ethereal (fake SMTP) so no real emails are sent.
+  // Ethereal gives you a preview URL to see what the email looks like.
+  // In C#, this is like using MailKit with a Papercut/smtp4dev local server.
+  smtpHost: getOptionalEnv('SMTP_HOST', ''),
+  smtpPort: parseInt(getOptionalEnv('SMTP_PORT', '587'), 10),
+  smtpUser: getOptionalEnv('SMTP_USER', ''),
+  smtpPass: getOptionalEnv('SMTP_PASS', ''),
+  emailFrom: getOptionalEnv('EMAIL_FROM', 'StoreKit <noreply@storekit.dev>'),
+
+  // ── Webhooks (Phase 11) ──────────────────────────────────────────
+  // HMAC-SHA256 secret shared with the payment provider (Paystack, Stripe, etc.).
+  // Used to verify incoming webhook signatures — proves the request is genuine.
+  // In C#, this is like a shared secret stored in appsettings.json for webhook verification.
+  // Default for dev: a dummy secret. In production, use a strong random string.
+  webhookSecret: getOptionalEnv('WEBHOOK_SECRET', 'storekit-webhook-secret-change-me-in-production'),
+
+  // Payment provider name (for logging/labelling). Not used for API calls in dev.
+  paymentProvider: getOptionalEnv('PAYMENT_PROVIDER', 'mock'),
+
   // ── Convenience Booleans ──────────────────────────────────────────
   isDevelopment: getOptionalEnv('NODE_ENV', 'development') === 'development',
   isProduction: getOptionalEnv('NODE_ENV', 'development') === 'production',
